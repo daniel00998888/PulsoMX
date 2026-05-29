@@ -1,7 +1,7 @@
 title: "NotiRápido"
 description: "Las noticias más relevantes de México y el mundo, al instante."
-baseurl: ""
-url: "https://TU-USUARIO.github.io/notirapido"
+baseurl: "/notirapido"
+url: "https://daniel00998888.github.io"
 lang: "es-MX"
 timezone: "America/Mexico_City"
 
