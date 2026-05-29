@@ -80,7 +80,7 @@ def ejecutar():
     titulos_viejos = {n["titulo_original"] for n in noticias_guardadas if "titulo_original" in n}
     
     nuevos = 0
-    for item in root.findall(".//item")[:2]: # Procesamos máximo 2 noticias por tanda para cuidar la cuota
+    for item in root.findall(".//item")[:4]: # Procesamos máximo 2 noticias por tanda para cuidar la cuota
         t_orig = item.find("title").text
         link = item.find("link").text
         desc = item.find("description").text or t_orig
