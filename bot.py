@@ -5,6 +5,10 @@ import xml.etree.ElementTree as ET
 import re
 from datetime import datetime
 
+# ⚙️ CONFIGURACIÓN DEL MODO TURBO
+MODO_TURBO = True  # Ponlo en False cuando tu página ya esté llena
+NOTICIAS_POR_CARRERA = 10 if MODO_TURBO else 1  # 10 para llenar rápido, 1 para ritmo normal
+
 RSS_URL = "https://news.google.com/rss/search?q=when:1d+geo:Mexico&hl=es-419&gl=MX&ceid=MX:es-419"
 JSON_PATH = "data/noticias.json"
 
@@ -82,7 +86,8 @@ def publicar_en_facebook(titulo, resumen, id_noticia, imagen_url):
     url_web = f"https://{GITHUB_USERNAME}.github.io/pulsomx/noticia.html?id={id_noticia}"
     mensaje = f"🚨 {titulo} 🚨\n\n{resumen}\n\n👉 Enterate de todos los detalles aquí: {url_web}"
     
-    fb_url = f"[https://graph.facebook.com/v20.0/](https://graph.facebook.com/v20.0/){FB_PAGE_ID}/photos"
+    # 🔥 CORRECCIÓN: Se arregló el formato de la URL que tenía Markdown basura
+    fb_url = f"https://graph.facebook.com/v20.0/{FB_PAGE_ID}/photos"
     payload = {"url": imagen_url, "caption": mensaje, "access_token": FB_ACCESS_TOKEN}
     try:
         r = requests.post(fb_url, data=payload, timeout=15)
@@ -92,7 +97,7 @@ def publicar_en_facebook(titulo, resumen, id_noticia, imagen_url):
         print(f"❌ Fallo de conexión Meta API: {e}")
 
 def ejecutar():
-    print("Buscando noticias en México...")
+    print(f"Buscando noticias en México... (Modo Turbo: {'ACTIVADO' if MODO_TURBO else 'DESACTIVADO'})")
     try:
         res = requests.get(RSS_URL, timeout=10)
         if res.status_code != 200: return
@@ -105,8 +110,8 @@ def ejecutar():
     titulos_viejos = {n["titulo_original"] for n in noticias_guardadas if "titulo_original" in n}
     
     nuevos = 0
-    # Procesamos 2 noticias por ejecución para no exceder cuotas
-    for item in root.findall(".//item")[:2]: 
+    # Se adapta dinámicamente según el MODO_TURBO
+    for item in root.findall(".//item")[:NOTICIAS_POR_CARRERA]: 
         t_orig = item.find("title").text
         link = item.find("link").text
         desc_html = item.find("description").text or ""
@@ -123,7 +128,8 @@ def ejecutar():
         if not img_url:
             texto_seguro = re.sub(r'[^a-zA-Z0-9 ]', '', t_ia[:50])
             prompt_img = requests.utils.quote(f"photojournalism, documentary news photography, highly realistic, 8k resolution, {texto_seguro}")
-            img_url = f"[https://image.pollinations.ai/prompt/](https://image.pollinations.ai/prompt/){prompt_img}?width=800&height=500&nologo=true"
+            # 🔥 CORRECCIÓN: Se arregló el formato de la URL de la imagen
+            img_url = f"https://image.pollinations.ai/prompt/{prompt_img}?width=800&height=500&nologo=true"
         
         nuevo_id = max([n["id"] for n in noticias_guardadas], default=0) + 1
         
@@ -135,11 +141,15 @@ def ejecutar():
         nuevos += 1
         print(f"✅ Procesada: {t_ia[:40]}...")
         
-        publicar_en_facebook(t_ia, r_ia, nuevo_id, img_url)
+        # Bloqueo de seguridad para no banear la página de FB
+        if not MODO_TURBO:
+            publicar_en_facebook(t_ia, r_ia, nuevo_id, img_url)
+        else:
+            print("🚀 MODO TURBO: Publicación en Facebook omitida para evitar SPAM.")
         
     if nuevos > 0:
         guardar_noticias(noticias_guardadas)
-        print("💾 JSON actualizado de forma local.")
+        print(f"💾 JSON actualizado localmente con {nuevos} noticias nuevas.")
 
 if __name__ == "__main__":
     ejecutar()
