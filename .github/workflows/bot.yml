@@ -2,7 +2,7 @@ name: Automatizacion de Noticias PulsoMX
 
 on:
   schedule:
-    - cron: '0 */1 * * *' # Se ejecuta solo cada 4 horas
+    - cron: '0 */4 * * *' # 🔥 ¡Corregido! Ahora sí se ejecutará cada 4 horas (6 veces al día)
   workflow_dispatch: # Nos da un botón para ejecutarlo manualmente cuando queramos
 
 permissions:
@@ -13,15 +13,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          
       - name: Instalar dependencias
         run: pip install -r requirements.txt
+        
       - name: Ejecutar Bot
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}          # 🚨 ¡Agregado! Necesario para Facebook
+          FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}  # 🚨 ¡Agregado! Necesario para Facebook
         run: python bot.py
+        
       - name: Guardar Cambios
         run: |
           git config --global user.name "github-actions[bot]"
