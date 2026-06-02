@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "id": 1,
+    "titulo_original": "El precio de las entradas para el Mundial, en el ojo de la tormenta en México - Cadena 3 Argentina",
+    "titulo": "Polémica en México: El precio de las entradas para el Mundial en el centro de la tormenta",
+    "resumen": "La venta de entradas para el Mundial ha generado una gran controversia en México debido a los altos precios y la falta de accesibilidad para muchos fanáticos",
+    "contenido": "La noticia sobre el precio de las entradas para el Mundial en México ha causado un gran revuelo en el país. Los precios elevados han generado una gran polémica, ya que muchos fanáticos sienten que son inaccesibles para ellos. La situación ha llevado a muchos a cuestionar la transparencia y la equidad en la venta de entradas. Además, se han reportado casos de especulación y reventa de entradas a precios exorbitantes, lo que ha aumentado la frustración entre los fanáticos. La situación ha generado un gran debate en las redes sociales, con muchos usuarios expresando su descontento y pidiendo soluciones para que todos puedan acceder a las entradas de manera justa y transparente.",
+    "imagen": "https://picsum.photos/800/500",
+    "fecha": "2026-06-02"
+  },
+  {
+    "id": 2,
+    "titulo_original": "Colapsa barda perimetral y hunde contenedores en Geo Pinos I, en Veracruz - Imagen de Veracruz",
+    "titulo": "Colapso en Geo Pinos I: Barda Perimetral se Derrumba y Contenedores se Hunden",
+    "resumen": "Un incidente sorprendente ocurrió en el estado de Veracruz, específicamente en el sitio conocido como Geo Pinos I, donde la barda perimetral colapsó y varios contenedores resultaron hundidos.",
+    "contenido": "Según fuentes locales y testimonios de testigos, el colapso de la barda perimetral en Geo Pinos I, Veracruz, causó el hundimiento de varios contenedores en el área. La causa exacta del colapso aún no ha sido determinada, pero se especula que podría deberse a factores como la erosión, el mal mantenimiento o incluso condiciones climáticas adversas. Las autoridades locales han iniciado una investigación para determinar las causas del incidente y evaluar los daños. Mientras tanto, se han tomado medidas de seguridad para evitar cualquier riesgo adicional en la zona. La comunidad se mantiene atenta a los desarrollos de esta situación y espera que se tomen medidas efectivas para prevenir incidentes similares en el futuro.",
+    "imagen": "https://picsum.photos/800/500",
+    "fecha": "2026-06-02"
+  }
+]
