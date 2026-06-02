@@ -2,6 +2,8 @@ import os
 import json
 import requests
 import xml.etree.ElementTree as ET
+import re
+import subprocess
 from datetime import datetime
 
 RSS_URL = "https://news.google.com/rss/search?q=when:1d+geo:Mexico&hl=es-419&gl=MX&ceid=MX:es-419"
@@ -11,7 +13,7 @@ JSON_PATH = "data/noticias.json"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 FB_PAGE_ID = os.getenv("FB_PAGE_ID")
 FB_ACCESS_TOKEN = os.getenv("FB_ACCESS_TOKEN")
-GITHUB_USERNAME = "daniel00998888" # ⚠️ CAMBIA ESTO por tu nombre de usuario de GitHub
+GITHUB_USERNAME = "daniel00998888" # ⚠️ Asegúrate de que el script corra en la ruta de tu repositorio local
 
 def cargar_noticias():
     if not os.path.exists(JSON_PATH): return []
@@ -23,6 +25,17 @@ def guardar_noticias(noticias):
     with open(JSON_PATH, "w", encoding="utf-8") as f:
         json.dump(noticias, f, ensure_ascii=False, indent=2)
 
+def limpiar_html(texto):
+    """Elimina las etiquetas HTML para no confundir a la IA ni ensuciar la web."""
+    if not texto: return ""
+    return re.sub(r'<[^>]+>', '', texto).strip()
+
+def extraer_imagen_original(texto_html):
+    """Intenta extraer la URL de la imagen original que viene oculta en el RSS."""
+    if not texto_html: return None
+    match = re.search(r'<img[^>]+src="([^">]+)"', texto_html)
+    return match.group(1) if match else None
+
 def reescribir_con_ia(titulo_orig, resumen_orig):
     if not GROQ_API_KEY: return titulo_orig, resumen_orig, resumen_orig
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -30,23 +43,34 @@ def reescribir_con_ia(titulo_orig, resumen_orig):
     
     prompt = f"""
     Actúa como un periodista digital mexicano enfocado en tráfico viral. Reescribe esta noticia.
-    Devuelve ESTRICTAMENTE un objeto JSON con tres llaves:
-    1. 'titulo': Un titular muy llamativo y clickbait ético.
-    2. 'resumen': Un gancho corto de 2 líneas para redes sociales.
-    3. 'contenido': El desarrollo completo de la noticia en 3 párrafos amplios y profesionales para leer en web.
+    Devuelve ESTRICTAMENTE un objeto JSON. No agregues comillas invertidas (```json) ni texto adicional.
+    Estructura exacta:
+    {{
+      "titulo": "Titular muy llamativo y clickbait ético",
+      "resumen": "Un gancho corto de 2 líneas para redes sociales",
+      "contenido": "Desarrollo completo de la noticia en 3 párrafos amplios y profesionales."
+    }}
     
-    Noticia: {titulo_orig} - {resumen_orig}
+    Noticia original: {titulo_orig} - {resumen_orig}
     """
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama3-70b-8192", # Cambiado al modelo grande para asegurar la estructura JSON
         "messages": [{"role": "user", "content": prompt}],
-        "response_format": {"type": "json_object"}
+        "response_format": {"type": "json_object"},
+        "temperature": 0.5 # Temperatura más baja para respuestas más precisas
     }
+    
     try:
-        res = requests.post(url, headers=headers, json=payload, timeout=15).json()
-        data = json.loads(res['choices'][0]['message']['content'])
-        return data.get("titulo"), data.get("resumen"), data.get("contenido")
-    except:
+        res = requests.post(url, headers=headers, json=payload, timeout=20).json()
+        contenido_crudo = res['choices'][0]['message']['content']
+        
+        # Limpiamos por si el modelo devuelve markdown de código (```json ... ```)
+        contenido_limpio = contenido_crudo.replace("```json", "").replace("```", "").strip()
+        data = json.loads(contenido_limpio)
+        
+        return data.get("titulo", titulo_orig), data.get("resumen", resumen_orig), data.get("contenido", resumen_orig)
+    except Exception as e:
+        print(f"⚠️ Error al procesar con Groq: {e}")
         return titulo_orig, resumen_orig, resumen_orig
 
 def publicar_en_facebook(titulo, resumen, id_noticia, imagen_url):
@@ -57,18 +81,25 @@ def publicar_en_facebook(titulo, resumen, id_noticia, imagen_url):
     url_web = f"https://{GITHUB_USERNAME}.github.io/pulsomx/noticia.html?id={id_noticia}"
     mensaje = f"🚨 {titulo} 🚨\n\n{resumen}\n\n👉 Enterate de todos los detalles aquí: {url_web}"
     
-    fb_url = f"https://graph.facebook.com/v20.0/{FB_PAGE_ID}/photos"
-    payload = {
-        "url": imagen_url,
-        "caption": mensaje,
-        "access_token": FB_ACCESS_TOKEN
-    }
+    fb_url = f"[https://graph.facebook.com/v20.0/](https://graph.facebook.com/v20.0/){FB_PAGE_ID}/photos"
+    payload = {"url": imagen_url, "caption": mensaje, "access_token": FB_ACCESS_TOKEN}
     try:
         r = requests.post(fb_url, data=payload, timeout=15)
         if r.status_code == 200: print("📢 ¡Publicado en Facebook con éxito!")
         else: print(f"❌ Error al publicar en FB: {r.text}")
     except Exception as e:
         print(f"❌ Fallo de conexión con Meta API: {e}")
+
+def automatizar_github():
+    """Ejecuta los comandos de Git para subir los cambios a GitHub."""
+    print("Sincronizando con GitHub...")
+    try:
+        subprocess.run(["git", "add", JSON_PATH], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(["git", "commit", "-m", f"Actualización automática de noticias: {datetime.today().strftime('%Y-%m-%d %H:%M')}"], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(["git", "push"], check=True, stdout=subprocess.DEVNULL)
+        print("✅ Cambios subidos a GitHub exitosamente.")
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️ No hubo cambios para subir a GitHub o ocurrió un error: {e}")
 
 def ejecutar():
     print("Buscando noticias en México...")
@@ -80,34 +111,42 @@ def ejecutar():
     titulos_viejos = {n["titulo_original"] for n in noticias_guardadas if "titulo_original" in n}
     
     nuevos = 0
-    for item in root.findall(".//item")[:4]: # Procesamos máximo 2 noticias por tanda para cuidar la cuota
+    # Cambié el límite a [:2] para que coincida con tu intención de cuidar la cuota
+    for item in root.findall(".//item")[:2]: 
         t_orig = item.find("title").text
         link = item.find("link").text
-        desc = item.find("description").text or t_orig
+        desc_html = item.find("description").text or ""
         
         if t_orig in titulos_viejos: continue
         
-        t_ia, r_ia, c_ia = reescribir_con_ia(t_orig, desc)
+        # 1. Limpiamos el texto antes de enviarlo a la IA
+        desc_limpia = limpiar_html(desc_html)
+        t_ia, r_ia, c_ia = reescribir_con_ia(t_orig, desc_limpia)
         
-        prompt_img = requests.utils.quote(f"dramatic news photo style, professional capture, {t_ia[:50]}")
-        img_url = f"https://image.pollinations.ai/prompt/{prompt_img}?width=800&height=500&nologo=true"
+        # 2. Estrategia de imagen: Buscar la original primero
+        img_url = extraer_imagen_original(desc_html)
+        
+        # Si no hay original, creamos una IA MUY realista
+        if not img_url:
+            texto_seguro = re.sub(r'[^a-zA-Z0-9 ]', '', t_ia[:50]) # Quitamos caracteres raros para la URL
+            prompt_img = requests.utils.quote(f"photojournalism, documentary news photography, highly realistic, 8k resolution, {texto_seguro}")
+            img_url = f"[https://image.pollinations.ai/prompt/](https://image.pollinations.ai/prompt/){prompt_img}?width=800&height=500&nologo=true"
         
         nuevo_id = max([n["id"] for n in noticias_guardadas], default=0) + 1
         
-        # Guardar en base de datos
         noticias_guardadas.append({
             "id": nuevo_id, "titulo_original": t_orig, "titulo": t_ia,
             "resumen": r_ia, "contenido": c_ia, "imagen": img_url,
             "fecha": datetime.today().strftime('%Y-%m-%d'), "url_origen": link
         })
         nuevos += 1
-        print(f"✅ Noticia generada de forma interna: {t_ia[:40]}")
+        print(f"✅ Noticia procesada: {t_ia[:40]}...")
         
-        # Enviar directo a tu FanPage
         publicar_en_facebook(t_ia, r_ia, nuevo_id, img_url)
         
     if nuevos > 0:
         guardar_noticias(noticias_guardadas)
+        automatizar_github() # Llamamos a la automatización al final
 
 if __name__ == "__main__":
     ejecutar()
