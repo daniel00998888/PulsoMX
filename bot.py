@@ -56,30 +56,21 @@ def reescribir_con_ia(titulo_orig):
     }
 
     prompt = f"""Eres un periodista profesional mexicano. A partir del siguiente titular de noticia, genera un artículo periodístico completo en español.
-    TITULAR: {titulo_orig}
-    Instrucciones OBLIGATORIAS:
 
+TITULAR: {titulo_orig}
+
+Instrucciones OBLIGATORIAS:
 - El "titulo" debe ser atractivo, claro y en español, máximo 90 caracteres.
-
 - El "resumen" debe ser un párrafo de 3-4 oraciones que explique el contexto general de la noticia, quiénes son los involucrados y por qué es importante. Mínimo 80 palabras.
-
 - El "contenido" debe ser un artículo periodístico completo de MÍNIMO 500 palabras con:
-
   * Párrafo de introducción que responda: ¿qué pasó?, ¿quién?, ¿cuándo?, ¿dónde?
-
   * Al menos 4 párrafos de desarrollo con contexto, antecedentes, detalles relevantes e impacto
-
   * Citas o declaraciones probables de los involucrados (puedes inferirlas de forma periodística)
-
   * Párrafo de cierre con perspectivas o lo que se espera a futuro
-
-  * Usa párrafos separados por saltos de línea (\n\n)
-
+  * Usa párrafos separados por saltos de línea (\\n\\n)
   * Escribe en tono periodístico formal pero accesible para el público mexicano general
 
-
-
-Responde ÚNICAMENTE con un JSON válido con estas tres claves exactas: "titulo", "resumen", "contenido". Sin texto extra, sin markdown, sin explicaciones.""
+Responde ÚNICAMENTE con un JSON válido con estas tres claves exactas: "titulo", "resumen", "contenido". Sin texto extra, sin markdown, sin explicaciones."""
 
     payload = {
         "model": "llama-3.3-70b-versatile",
@@ -103,6 +94,7 @@ Responde ÚNICAMENTE con un JSON válido con estas tres claves exactas: "titulo"
             contenido += "\n\n" + resumen
 
         return titulo, resumen, contenido
+
     except Exception as e:
         print(f"⚠️ Error IA: {e}")
         return titulo_orig, "Noticia importante de México.", "Revisa el enlace original para más detalles."
