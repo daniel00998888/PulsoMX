@@ -2,22 +2,17 @@ import os
 import json
 import requests
 import xml.etree.ElementTree as ET
-from bs4 import BeautifulSoup
-from datetime import datetime
 import re
+from datetime import datetime
+from urllib.parse import quote
 
 # ⚙️ CONFIGURACIÓN
+MODO_TURBO = True 
+NOTICIAS_POR_CARRERA = 10 if MODO_TURBO else 1
+
+RSS_URL = "https://news.google.com/rss/search?q=when:1d+geo:Mexico&hl=es-419&gl=MX&ceid=MX:es-419"
 JSON_PATH = "data/noticias.json"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-RSS_URL = "https://news.google.com/rss/search?q=when:1d+geo:Mexico&hl=es-419&gl=MX&ceid=MX:es-419"
-
-# Headers que simulan un navegador real
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-}
-
-FALLBACK_IMAGE_URL = "https://images.unsplash.com/photo-1504711434269-d0385429813a?q=80&w=800&auto=format&fit=crop"
 
 def cargar_noticias():
     if not os.path.exists(JSON_PATH): return []
@@ -30,86 +25,67 @@ def guardar_noticias(noticias):
     with open(JSON_PATH, "w", encoding="utf-8") as f:
         json.dump(noticias, f, ensure_ascii=False, indent=2)
 
-def obtener_url_real(google_url):
-    """Resuelve la redirección real. Si falla, limpia la URL."""
-    try:
-        # Intentamos seguir la redirección HTTP automática
-        response = requests.head(google_url, headers=HEADERS, allow_redirects=True, timeout=5)
-        url_final = response.url
-        
-        # Si la URL final sigue siendo de Google News, intentamos un método de extracción manual
-        if "news.google.com" in url_final:
-            res = requests.get(google_url, headers=HEADERS, timeout=5)
-            # Buscamos en el meta tag 'canonical' que suele tener la URL real
-            soup = BeautifulSoup(res.text, 'html.parser')
-            canonical = soup.find("link", rel="canonical")
-            if canonical and canonical.get("href"):
-                return canonical["href"]
-                
-        return url_final
-    except:
-        return google_url
-
-def obtener_imagen_periodico(url_real):
-    """Intenta extraer la imagen de la web final."""
-    # Si por error nos quedamos en Google, abortamos imagen
-    if "news.google.com" in url_real:
-        return FALLBACK_IMAGE_URL
-        
-    try:
-        res = requests.get(url_real, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(res.content, 'html.parser')
-        
-        # Prioridad 1: Etiquetas Meta (og:image)
-        meta_img = soup.find("meta", property="og:image")
-        if meta_img and meta_img.get("content"):
-            return meta_img["content"]
-            
-        # Prioridad 2: Buscar la primera imagen grande dentro del body
-        # (Esto evita logos pequeños y busca fotos de artículos)
-        imgs = soup.find_all("img")
-        for img in imgs:
-            src = img.get("src", "")
-            # Filtramos para asegurar que sea una URL completa y no un icono
-            if src.startswith("http") and len(src) > 40:
-                return src
-    except:
-        pass
-    return FALLBACK_IMAGE_URL
+def generar_imagen_relevante(titulo):
+    """Genera una URL de imagen muy detallada usando Toda la descripcion de la Noticia para que sea coherente."""
+    # Limpiamos el título para que la IA de imágenes lo entienda mejor
+    titulo_limpio = re.sub(r'[^a-zA-Z0-9 ]', '', titulo)
+    prompt = quote(f"photorealistic news photography, {titulo_limpio}, high resolution, cinematic lighting")
+    return f"https://image.pollinations.ai/prompt/{prompt}?width=800&height=500&nologo=true&seed=42"
 
 def reescribir_con_ia(titulo_orig):
-    # (Mantén tu función de IA aquí tal cual, la omito para ahorrar espacio)
-    # ... asegúrate de pegar tu lógica de Groq aquí ...
-    return titulo_orig, "Noticia reciente.", "Contenido del artículo."
+    if not GROQ_API_KEY: return titulo_orig, "Noticia reciente", "Detalles en el enlace."
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [{"role": "user", "content": f"Reescribe: {titulo_orig}. Devuelve JSON con 'titulo', 'resumen', 'contenido'."}],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.5
+    }
+    
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=20)
+        res = r.json()
+        contenido_crudo = res['choices'][0]['message']['content']
+        data = json.loads(contenido_crudo)
+        return data.get("titulo", titulo_orig), data.get("resumen", "Noticia importante."), data.get("contenido", "Detalles en el enlace.")
+    except:
+        return titulo_orig, "Noticia importante.", "Revisa el enlace original."
 
 def ejecutar():
     try:
         res = requests.get(RSS_URL, timeout=10)
         root = ET.fromstring(res.content)
-    except: return
-
-    noticias = cargar_noticias()
-    for item in root.findall(".//item")[:5]: # Solo 5 para probar rápido
+    except Exception as e:
+        print(f"❌ Error RSS: {e}")
+        return
+    
+    noticias_guardadas = cargar_noticias()
+    nuevos = 0
+    
+    for item in root.findall(".//item")[:NOTICIAS_POR_CARRERA]:
         t_orig = item.find("title").text
-        if any(n.get('titulo_original') == t_orig for n in noticias): continue
+        if any(n.get('titulo_original') == t_orig for n in noticias_guardadas): continue
         
-        g_url = item.find("link").text
-        u_real = obtener_url_real(g_url)
+        t_ia, r_ia, c_ia = reescribir_con_ia(t_orig)
         
-        # Si la URL resolvió a algo de Google, marcamos imagen como fallida
-        if "news.google.com" in u_real:
-            img = FALLBACK_IMAGE_URL
-        else:
-            img = obtener_imagen_periodico(u_real)
-            
-        t, r, c = reescribir_con_ia(t_orig)
+        # Generamos la imagen basada en el título real de la noticia
+        img_url = generar_imagen_relevante(t_ia)
         
-        noticias.append({
-            "titulo_original": t_orig,
-            "titulo": t, "resumen": r, "contenido": c,
-            "imagen": img, "url_origen": u_real
+        nuevo_id = max([n["id"] for n in noticias_guardadas], default=0) + 1
+        noticias_guardadas.append({
+            "id": nuevo_id, "titulo_original": t_orig, "titulo": t_ia,
+            "resumen": r_ia, "contenido": c_ia, "imagen": img_url,
+            "fecha": datetime.today().strftime('%Y-%m-%d')
         })
-    guardar_noticias(noticias[-20:])
+        nuevos += 1
+        print(f"✅ Procesada con imagen: {t_ia[:30]}")
+        
+    if nuevos > 0:
+        guardar_noticias(noticias_guardadas)
+        print(f"💾 Guardado {nuevos} noticias.")
 
 if __name__ == "__main__":
     ejecutar()
