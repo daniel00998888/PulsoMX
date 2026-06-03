@@ -24,35 +24,83 @@ def guardar_noticias(noticias):
     with open(JSON_PATH, "w", encoding="utf-8") as f:
         json.dump(noticias, f, ensure_ascii=False, indent=2)
 
-def extraer_imagen_noticia(url):
-    """Extrae la imagen og:image de la noticia original."""
-    if not url or url == '#':
-        return None
+def seguir_redireccion_google(url):
+    """Sigue la redirección de Google News hasta llegar a la URL real del artículo."""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
         r = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
+        url_final = r.url
+
+        # Si sigue siendo de Google, buscar la URL real en el HTML
+        if 'google.com' in url_final or 'news.google' in url_final:
+            # Buscar href que apunte al artículo real
+            match = re.search(r'<a[^>]+href=["\'](https?://(?!.*google\.com)[^"\']+)["\']', r.text)
+            if match:
+                return match.group(1)
+            # Buscar canonical
+            canonical = re.search(r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\'](https?://[^"\']+)["\']', r.text)
+            if canonical:
+                return canonical.group(1)
+
+        return url_final
+    except:
+        return url
+
+def extraer_imagen_noticia(url):
+    """Extrae la imagen og:image del artículo original."""
+    if not url or url == '#':
+        return None
+    try:
+        # Primero seguir la redirección de Google News
+        url_real = seguir_redireccion_google(url)
+        print(f"   🔗 URL real: {url_real[:70]}...")
+
+        # Ignorar si sigue siendo Google
+        if 'google.com' in url_real:
+            return None
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'es-MX,es;q=0.9',
+        }
+        r = requests.get(url_real, headers=headers, timeout=12, allow_redirects=True)
         if r.status_code != 200:
             return None
 
-        # Buscar og:image
-        og_match = re.search(r'<meta[^>]*property=["\']og:image["\'][^>]*content=["\'](https?://[^"\']+)["\']', r.text)
-        if og_match:
-            return og_match.group(1)
+        html = r.text
 
-        # Buscar twitter:image como fallback
-        tw_match = re.search(r'<meta[^>]*name=["\']twitter:image["\'][^>]*content=["\'](https?://[^"\']+)["\']', r.text)
-        if tw_match:
-            return tw_match.group(1)
+        # 1. og:image (más confiable)
+        og = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]*content=["\'](https?://[^"\']+)["\']', html)
+        if og:
+            img = og.group(1)
+            if 'google' not in img and 'logo' not in img.lower():
+                return img
 
-        # Buscar cualquier img grande como último recurso
-        img_match = re.search(r'<img[^>]*src=["\'](https?://[^"\']+\.(jpg|jpeg|png|webp))["\']', r.text)
-        if img_match:
-            return img_match.group(1)
+        # Orden alternativo del atributo
+        og2 = re.search(r'<meta[^>]+content=["\'](https?://[^"\']+)["\'][^>]*property=["\']og:image["\']', html)
+        if og2:
+            img = og2.group(1)
+            if 'google' not in img and 'logo' not in img.lower():
+                return img
+
+        # 2. twitter:image
+        tw = re.search(r'<meta[^>]*name=["\']twitter:image["\'][^>]*content=["\'](https?://[^"\']+)["\']', html)
+        if tw:
+            img = tw.group(1)
+            if 'google' not in img:
+                return img
+
+        # 3. Primera imagen grande del artículo
+        imgs = re.findall(r'<img[^>]+src=["\'](https?://[^"\']+\.(jpg|jpeg|png|webp))["\']', html)
+        for img_url, _ in imgs:
+            if 'google' not in img_url and 'logo' not in img_url.lower() and 'icon' not in img_url.lower():
+                return img_url
 
     except Exception as e:
-        print(f"⚠️ No se pudo extraer imagen de {url[:50]}: {e}")
+        print(f"   ⚠️ Error al extraer imagen: {e}")
     return None
 
 def generar_imagen_fallback(titulo):
@@ -138,7 +186,18 @@ def ejecutar():
 
     for item in root.findall(".//item")[:NOTICIAS_POR_CARRERA]:
         t_orig = item.find("title").text
-        link = item.find("link").text if item.find("link") is not None else "#"
+
+        # Extraer URL real — Google News la mete en <link> o dentro del <description>
+        link_elem = item.find("link")
+        link = link_elem.text if link_elem is not None and link_elem.text else ""
+
+        # A veces Google News pone la URL real en el tag después de <link>
+        if not link or 'news.google' in link:
+            desc = item.find("description")
+            if desc is not None and desc.text:
+                url_match = re.search(r'href=["\'](https?://(?!.*news\.google)[^"\']+)["\']', desc.text)
+                if url_match:
+                    link = url_match.group(1)
 
         if any(n.get('titulo_original') == t_orig for n in noticias_guardadas):
             continue
