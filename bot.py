@@ -15,11 +15,15 @@ RSS_URL = "https://news.google.com/rss/search?q=when:1d+geo:Mexico&hl=es-419&gl=
 JSON_PATH = "data/noticias.json"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Headers potentes para hacernos pasar por un humano en Google Chrome
+# Headers potentes
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'es-MX,es;q=0.9'
 }
+
+# 🔑 LA LLAVE MAESTRA: Evita que Google nos bloquee con la pantalla de "Aceptar Cookies"
+COOKIES_GOOGLE = {'CONSENT': 'YES+cb.20210720-07-p0.es+FX+410'}
 
 FALLBACK_IMAGE_URL = "https://images.unsplash.com/photo-1504711434269-d0385429813a?q=80&w=800&auto=format&fit=crop"
 
@@ -35,20 +39,35 @@ def guardar_noticias(noticias):
         json.dump(noticias, f, ensure_ascii=False, indent=2)
 
 def obtener_url_real_definitiva(google_url):
-    """
-    Atraviesa la pantalla de carga de Google News. Usa 2 métodos:
-    1. Decodificación Base64 matemática.
-    2. Scraping del código JavaScript de la página de redirección.
-    """
-    # Método 1: Decodificación matemática
+    """Atraviesa la seguridad de Google News forzando la extracción del link original"""
+    
+    # 1. Petición inyectando las Cookies de aprobación
+    try:
+        res = requests.get(google_url, headers=HEADERS, cookies=COOKIES_GOOGLE, timeout=10)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # Buscar el enlace directo que Google esconde
+        for a in soup.find_all('a', href=True):
+            url = a['href']
+            # Filtramos enlaces basura de Google
+            if url.startswith('http') and 'google.com' not in url and 'youtube.com' not in url:
+                return url
+                
+        # Estructura de etiquetas nueva de Google (c-wiz)
+        for tag in soup.find_all(attrs={'data-n-a': True}):
+            url = tag['data-n-a']
+            if url.startswith('http') and 'google.com' not in url:
+                return url
+    except Exception as e:
+        print(f"⚠️ Error leyendo página de Google: {e}")
+
+    # 2. Decodificación matemática agresiva como plan de respaldo
     try:
         if "articles/" in google_url:
-            base64_str = google_url.split("articles/")[1].split("?")[0]
-            base64_str += "=" * ((4 - len(base64_str) % 4) % 4)
-            decoded_bytes = base64.urlsafe_b64decode(base64_str)
-            
-            # Buscar la URL escondida en el código binario
-            match = re.search(b'(https?://[a-zA-Z0-9./_\-\?\&\=\%]+)', decoded_bytes)
+            codigo = google_url.split("articles/")[1].split("?")[0]
+            codigo += "=" * ((4 - len(codigo) % 4) % 4)
+            decoded = base64.urlsafe_b64decode(codigo)
+            match = re.search(rb'(https?://[a-zA-Z0-9\.\-\_\/\?\&\=\%]+)', decoded)
             if match:
                 url_limpia = match.group(1).decode('utf-8')
                 if "google.com" not in url_limpia:
@@ -56,58 +75,47 @@ def obtener_url_real_definitiva(google_url):
     except Exception:
         pass
 
-    # Método 2: Leer la página de espera de Google y robar el enlace
-    try:
-        res = requests.get(google_url, headers=HEADERS, timeout=10)
-        # 1. Buscamos en etiquetas A ocultas
-        match = re.search(r'<a[^>]+href="(https?://[^"]+)"', res.text)
-        if match and "google.com" not in match.group(1):
-            return match.group(1)
-            
-        # 2. Buscamos en el redireccionador de JavaScript
-        match = re.search(r'window\.location\.replace\("([^"]+)"\)', res.text)
-        if match:
-            return match.group(1)
-    except Exception:
-        pass
-
     return google_url
 
 def obtener_imagen_periodico(url_real):
+    """Entra a la página del periódico real y roba su imagen principal"""
     if "news.google.com" in url_real:
         return FALLBACK_IMAGE_URL
         
     try:
-        # Entramos a la página real del periódico
-        res = requests.get(url_real, headers=HEADERS, timeout=12)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.content, 'html.parser')
+        res = requests.get(url_real, headers=HEADERS, timeout=12, allow_redirects=True)
+        soup = BeautifulSoup(res.content, 'html.parser')
+        
+        # 1. Intentamos buscar las etiquetas oficiales de portada
+        img_tag = soup.find("meta", property="og:image") or \
+                  soup.find("meta", attrs={"name": "twitter:image"}) or \
+                  soup.find("meta", itemprop="image")
+                  
+        if img_tag and img_tag.get("content"):
+            imagen = img_tag["content"]
+            if imagen.startswith("/"):
+                imagen = urllib.parse.urljoin(url_real, imagen)
+            return imagen
             
-            # Buscamos la foto de portada (og:image o twitter:image)
-            img_tag = soup.find("meta", property="og:image") or \
-                      soup.find("meta", attrs={"name": "twitter:image"}) or \
-                      soup.find("meta", itemprop="image")
-                      
-            if img_tag and img_tag.get("content"):
-                imagen = img_tag["content"]
-                # Ajustamos el enlace si el periódico lo hizo relativo
-                if imagen.startswith("/"):
-                    imagen = urllib.parse.urljoin(url_real, imagen)
-                return imagen
+        # 2. Si es un periódico mal estructurado, robamos la primera imagen del artículo
+        primera_img = soup.find("img")
+        if primera_img and primera_img.get("src"):
+            if primera_img["src"].startswith("http"):
+                return primera_img["src"]
                 
     except Exception as e:
-        print(f"⚠️ Error buscando imagen en el periódico: {e}")
+        print(f"⚠️ Error buscando imagen en {url_real[:30]}: {e}")
         
     return FALLBACK_IMAGE_URL
 
 def reescribir_con_ia(titulo_orig):
     if not GROQ_API_KEY:
-        return titulo_orig, "Noticia importante de México.", "Revisa el enlace original para más detalles."
+        return titulo_orig, "Noticia reciente.", "Detalles en el enlace original."
 
-    prompt = f"""Eres un periodista profesional mexicano. A partir del siguiente titular de noticia, genera un artículo periodístico completo en español.
+    prompt = f"""Eres un periodista profesional mexicano. A partir del siguiente titular, genera un artículo periodístico en español.
     TITULAR: {titulo_orig}
-    Responde ÚNICAMENTE con un objeto JSON válido con estas 3 claves exactas:
-    - "titulo": Un título llamativo para la noticia.
+    Responde ÚNICAMENTE con un objeto JSON válido con 3 claves exactas:
+    - "titulo": Un título llamativo.
     - "resumen": Un texto breve de dos líneas.
     - "contenido": El cuerpo de la noticia con al menos 300 palabras, estructurado en párrafos.
     No agregues introducciones ni markdown fuera de las llaves."""
@@ -157,16 +165,16 @@ def ejecutar():
         
         t_ia, r_ia, c_ia = reescribir_con_ia(t_orig)
         
-        # 1. Obtenemos URL cruzando el bloqueo de Google
+        # 1. Atravesar Google News usando Cookies inyectadas
         url_real = obtener_url_real_definitiva(google_url)
         print(f"🔗 URL Destino: {url_real[:60]}...")
         
-        # 2. Le robamos la foto oficial al periódico
+        # 2. Descargar la imagen del periódico final
         img_url = obtener_imagen_periodico(url_real)
         if img_url == FALLBACK_IMAGE_URL:
-            print("⚠️ No se encontró imagen. Usando imagen por defecto.")
+            print("⚠️ Usando imagen por defecto (El periódico bloqueó el acceso).")
         else:
-            print(f"✅ Imagen capturada exitosamente.")
+            print(f"✅ ¡Imagen real extraída con éxito!: {img_url[:30]}...")
 
         nuevo_id = max([n.get("id", 0) for n in noticias_guardadas], default=0) + 1
         noticias_guardadas.append({
