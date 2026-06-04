@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 
 # ⚙️ CONFIGURACIÓN
 MODO_TURBO = True
-NOTICIAS_POR_CARRERA = 3 if MODO_TURBO else 1
+NOTICIAS_POR_CARRERA = 4 if MODO_TURBO else 1
 
 # 🔥 RSS directos de fuentes mexicanas.
 RSS_FEEDS = [
@@ -25,7 +25,7 @@ JSON_PATH = "data/noticias.json"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/124.0.0.0',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     'Accept-Language': 'es-MX,es;q=0.9,en;q=0.8',
 }
@@ -217,7 +217,7 @@ def ejecutar():
             print(f"✅ Guardada: {t_ia[:50]} ({len(c_ia.split())} palabras)")
             
             # ⏱️ Pausa obligatoria para evitar el bloqueo de Groq (Rate Limit)
-            time.sleep(4)
+            time.sleep(11)
 
     if nuevos > 0:
         if len(noticias_guardadas) > 100:
