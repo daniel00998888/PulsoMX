@@ -121,11 +121,11 @@ Instrucciones OBLIGATORIAS:
 Responde ÚNICAMENTE con un JSON válido con estas tres claves exactas: "titulo", "resumen", "contenido". Sin texto extra, sin markdown, sin explicaciones."""
 
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "llama-3.1-8b-instant",  # SOLO CAMBIA ESTA LÍNEA
         "messages": [{"role": "user", "content": prompt}],
         "response_format": {"type": "json_object"},
         "temperature": 0.7,
-        "max_tokens": 2000
+        "max_tokens": 1200  # Y ESTA LÍNEA
     }
 
     try:
