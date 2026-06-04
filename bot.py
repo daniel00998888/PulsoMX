@@ -146,36 +146,57 @@ INSTRUCCIONES:
 Responde SOLO con JSON válido con las claves: titulo, resumen, contenido."""
 
     payload = {
-        "model": "llama-3.1-8b-instant",
-        "messages": [{"role": "user", "content": prompt}],
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {
+                "role": "system",
+                "content": "Eres un periodista mexicano. Siempre respondes ÚNICAMENTE con un objeto JSON válido con las claves titulo, resumen y contenido. Nunca añades texto fuera del JSON."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
         "response_format": {"type": "json_object"},
         "temperature": 0.7,
-        "max_tokens": 1200
+        "max_tokens": 1500
     }
 
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=45)
-        res = r.json()
+    for intento in range(2):  # 2 intentos
+        try:
+            r = requests.post(url, headers=headers, json=payload, timeout=45)
+            res = r.json()
 
-        if 'choices' not in res:
-            msg = res.get('error', {}).get('message', 'Error desconocido')
-            print(f"   ⚠️ API Groq Error: {msg}")
-            return titulo_limpio, "Noticia en desarrollo.", "Consulta el enlace original para más detalles."
+            if 'choices' not in res:
+                msg = res.get('error', {}).get('message', 'Error desconocido')
+                print(f"   ⚠️ API Groq Error (intento {intento+1}): {msg}")
+                time.sleep(5)
+                continue
 
-        contenido_crudo = res['choices'][0]['message']['content']
-        data = json.loads(contenido_crudo)
-        titulo = limpiar_titulo(data.get("titulo", titulo_limpio))
-        resumen = data.get("resumen", "Noticia importante de México.")
-        contenido = data.get("contenido", "Revisa el enlace original para más detalles.")
+            contenido_crudo = res['choices'][0]['message']['content']
 
-        if len(contenido.split()) < 200:
-            contenido += "\n\n" + resumen
+            # Limpiar si viene con markdown
+            contenido_crudo = re.sub(r'^```json\s*', '', contenido_crudo.strip())
+            contenido_crudo = re.sub(r'```$', '', contenido_crudo.strip())
 
-        return titulo, resumen, contenido
+            data = json.loads(contenido_crudo)
+            titulo = limpiar_titulo(data.get("titulo", titulo_limpio))
+            resumen = data.get("resumen", "Noticia importante de México.")
+            contenido = data.get("contenido", "Revisa el enlace original para más detalles.")
 
-    except Exception as e:
-        print(f"⚠️ Error IA: {e}")
-        return titulo_limpio, "Noticia importante de México.", "Revisa el enlace original para más detalles."
+            if len(contenido.split()) < 200:
+                contenido += "\n\n" + resumen
+
+            return titulo, resumen, contenido
+
+        except json.JSONDecodeError as e:
+            print(f"   ⚠️ JSON inválido (intento {intento+1}): {e}")
+            time.sleep(5)
+        except Exception as e:
+            print(f"⚠️ Error IA (intento {intento+1}): {e}")
+            time.sleep(5)
+
+    return titulo_limpio, "Noticia importante de México.", "Revisa el enlace original para más detalles."
 
 def ejecutar():
     noticias_guardadas = cargar_noticias()
